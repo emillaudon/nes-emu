@@ -55,7 +55,7 @@ pub struct CPU {
     pub register_a: u8,
     pub register_x: u8,
     pub register_y: u8,
-    pub status: u8,
+    pub status: CpuFlags,
     pub program_counter: u16,
     memory: [u8; 0xFFFF]
 }
@@ -66,7 +66,7 @@ impl CPU {
             register_a: 0,
             register_x: 0,
             register_y: 0,
-            status: 0, 
+            status: CpuFlags::from_bits_truncate(0b1000100), 
             program_counter: 0,
             memory: [0; 0xFFFF]
         }
@@ -99,7 +99,7 @@ impl CPU {
         self.register_a = 0;
         self.register_x = 0;
         self.register_y = 0;
-        self.status = 0;
+        self.status = CpuFlags::from_bits_truncate(0b100100);
 
         self.program_counter = self.mem_read_u16(0xFFFC);
     }
@@ -117,8 +117,20 @@ impl CPU {
 
     fn add_to_register_a(&mut self, data: u8) {
         let sum = self.register_a as u16
-            + data as u16  ;
-            //+ (if self.status.contains(CpuFlags::CARRY))
+            + data as u16  
+            + (if self.status.contains(CpuFlags::CARRY) {
+                1
+            } else {
+                0
+            }) as u16;
+
+            let result = sum as u8;
+
+            if (data ^ result) & (result ^ self.register_a) & 0x80 != 0 {
+                self.status.insert(CpuFlags::OVERFLOW);
+            } else {
+                self.status.remove(CpuFlags::OVERFLOW);
+            }
     }
 
     fn lda(&mut self, mode: &AddressingMode) {
@@ -157,15 +169,15 @@ impl CPU {
 
     fn update_zero_and_negative_flags(&mut self, result: u8) {
         if result == 0 {
-            self.status = self.status | 0b0000_0010;
+            self.status.insert(CpuFlags::ZERO);
         } else {
-            self.status = self.status & 0b1111_1101;
+            self.status.remove(CpuFlags::ZERO);
         }
 
         if result & 0b1000_0000 != 0 {
-            self.status = self.status | 0b1000_0000;
+            self.status.insert(CpuFlags::NEGATIV);
         } else {
-            self.status = self.status & 0b0111_1111;
+            self.status.remove(CpuFlags::NEGATIV);
         }
     }
 
@@ -288,15 +300,6 @@ mod test {
         let mut cpu = CPU::new();
         cpu.load_and_run(vec![0xa9, 0x05, 0x00]);
         assert_eq!(cpu.register_a, 0x05);
-        assert!(cpu.status & 0b000_0010 == 0b00);
-        assert!(cpu.status & 0b1000_0000 == 0);
-    }
-
-    #[test]
-    fn test_0xa9_lda_zero_flag() {
-        let mut cpu = CPU::new();
-        cpu.load_and_run(vec![0xa9, 0x00, 0x00]);
-        assert!(cpu.status & 0b0000_0010 == 0b10);
     }
 
     #[test]
